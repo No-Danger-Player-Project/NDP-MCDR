@@ -1,5 +1,7 @@
 # No Danger Player Project MCDR Client (NDP-MCDR) - 多服务器联合封禁系统
 
+中文|[English](https://github.com/No-Danger-Player-Project/NDP-MCDR/blob/main/README.md)
+
 ## 项目概述
 **No Danger Player Project MCDR Client (NDP-MCDR)** 是一款开源的跨服务器封禁插件，旨在实时同步多个服务器之间的封禁名单，防止恶意玩家进入任何已连接的服务器。通过集中管理玩家封禁数据，显著提升服务器网络的安全性和管理效率。
 
