@@ -15,7 +15,7 @@ PLUGIN_METADATA = {
     "author": "EXE_autumnwind",
     "link": "https://github.com/No-Danger-Player-Project/NDP-MCDR",
     "dependencies": {
-        "mcdreforged": ">=2.0.0-alpha.1",
+        "mcdreforged": ">=2.0.0",
         "online_player_api": ">=1.0.0",
         "player_ip_logger": ">=1.0.0",
         "minecraft_data_api": ">=1.6.0"
