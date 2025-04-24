@@ -2,7 +2,10 @@
   "id": "ndp",
   "version": "1.7.1",
   "name": "NDP",
-  "description": "适用于MCDR的NDP客户端",
+  "description": {
+    "en_us": "NDP client suitable for MCDR",
+    "zh_cn": "适用于MCDR的NDP客户端"
+},
   "author": "EXE_autumnwind",
   "link": "https://github.com/No-Danger-Player-Project/NDP-MCDR",
   "dependencies": {
