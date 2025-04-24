@@ -9,7 +9,7 @@ from mcdreforged.api.all import *
 
 PLUGIN_METADATA = {
     "id": "ndp",
-    "version": "1.7.0",
+    "version": "1.7.1",
     "name": "NDP",
     "description": "适用于MCDR的NDP客户端",
     "author": "EXE_autumnwind",
