@@ -10,7 +10,7 @@ from mcdreforged.api.all import *
 
 PLUGIN_METADATA = {
     "id": "ndp",
-    "version": "1.7.2",
+    "version": "1.7.7",
     "author": "EXE_autumnwind",
     "link": "https://github.com/No-Danger-Player-Project/NDP-MCDR"
 }
@@ -23,6 +23,7 @@ class Config(Serializable):
     ip_record_interval: int = 30
     check_update: bool = True
     auto_ban: bool = True
+    synclog: bool = True
 
 class BanData:
     def __init__(self, server: PluginServerInterface):
@@ -45,12 +46,12 @@ class BanData:
     def _ensure_file(self, filename: str, default_data: dict):
         path = os.path.join(self.server.get_data_folder(), filename)
         if not os.path.exists(path):
-            with open(path, 'w') as f:
-                json.dump(default_data, f, indent=2)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(default_data, f, indent=2, ensure_ascii=False)
 
     def load_data(self):
         try:
-            with open(self._get_data_path('bans.json'), 'r') as f:
+            with open(self._get_data_path('bans.json'), 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 self.bans = {
                     'ip_bans': data.get('ip_bans', {}),
@@ -66,7 +67,7 @@ class BanData:
             }
 
         try:
-            with open(self._get_data_path('ips.json'), 'r') as f:
+            with open(self._get_data_path('ips.json'), 'r', encoding='utf-8') as f:
                 self.ip_records = json.load(f)
         except Exception as e:
             self.server.logger.error(f'加载IP记录失败: {str(e)}')
@@ -143,7 +144,6 @@ class NDPBanSystem:
                 target_class=Config,
                 default_config=Config().serialize()
             )
-            self.server.logger.info('NDP配置已加载')
         except Exception as e:
             self.server.logger.error(f'加载配置失败: {str(e)}，使用默认配置')
 
@@ -152,10 +152,6 @@ class NDPBanSystem:
             self.ip_logger = server.get_plugin_instance('player_ip_logger')
             if self.ip_logger is None:
                 server.logger.warning('缺少Player IP Logger,使用Minecraft Data API')
-            
-            self.online_player_api = server.get_plugin_instance('onlineplayerapi')
-            if self.online_player_api is None:
-                server.logger.warning('online_player_api不可用，将使用备用方法')
         
             self.stop_sync_timer()
             self.stop_ip_record_timer()
@@ -166,18 +162,19 @@ class NDPBanSystem:
         
             threading.Thread(target=self.check_for_updates, daemon=True).start()
 
+            # 修改事件监听器注册方式
             server.register_event_listener(
                 'mcdr.player_joined', 
-                lambda player, info, _: self.on_player_joined(player, info)
+                self.on_player_joined
             )
             server.register_event_listener(
                 'mcdr.player_left',
-                lambda player, info, _: self.on_player_left(player)
+                self.on_player_left
             )
         
             server.register_event_listener(
                 'server_startup',
-                lambda: self.check_all_online_players()
+                self.check_all_online_players
             )
         
         except Exception as e:
@@ -243,6 +240,7 @@ class NDPBanSystem:
             '§b!!ndp checkupdate §f- 检查更新',
             f'§a同步间隔: {self.config.sync_interval}秒',
             f'§a自动封禁: {"开启" if self.config.auto_ban else "关闭"}',
+            f'§a显示同步提示: {"开启" if self.config.synclog else "关闭"}',
             f'§a当前版本: v{PLUGIN_METADATA["version"]}'
         ]
         source.reply('\n'.join(help_msg))
@@ -341,6 +339,7 @@ class NDPBanSystem:
                 f'§a最后同步时间: {self.ban_data.bans.get("last_sync", "从未同步")}',
                 f'§aIP记录方式: {"IP Logger" if self.ip_logger else "Minecraft Data API"}',
                 f'§a自动封禁: {"开启" if self.config.auto_ban else "关闭"}',
+                f'§a显示同步提示: {"开启" if self.config.synclog else "关闭"}',
                 f'§a检查更新: {"开启" if self.config.check_update else "关闭"}'
             ]
             source.reply('\n'.join(status))
@@ -446,13 +445,12 @@ class NDPBanSystem:
         except Exception as e:
             self.server.logger.error(f'记录在线玩家IP时出错: {str(e)}')
 
-    def on_player_joined(self, player: str, info: dict):
+    def on_player_joined(self, server: PluginServerInterface, player: str, info: dict, *args):
         self.ban_data.update_online_status(player, True)
     
         if ip := self._get_player_ip(player):
             self.ban_data.record_ip(player, ip)
         
-            # 同时检测 IPv4 和 IPv6 回环地址
             if (ip == '127.0.0.1' or ip == '::1') and self.config.check_localhost:
                 self.server.logger.warning('检测到本地连接，请确保已正确配置proxy protocol')
         
@@ -524,7 +522,7 @@ class NDPBanSystem:
                     kick_msg = [
                         '§c§l[NDP] 检测到被封禁玩家',
                         f'§7玩家: §f{player}',
-                        f'§7IP地址: §f{ip}',
+                        f'§7IP: §f{ip}',
                         '§7封禁原因: §c你的IP已被NDP系统封禁',
                         '§7如有疑问请联系NDP管理人员'
                     ]
@@ -532,7 +530,7 @@ class NDPBanSystem:
                     self.server.logger.info(f'检测到被封禁玩家')
                 elif self.ban_data.is_player_banned(player):
                     kick_msg = [
-                        '§c§l[NDP] 检测到被封禁玩家',
+                        '§c§l[NDP] 检测到封禁账号',
                         f'§7玩家: §f{player}',
                         '§7封禁原因: §c你已被NDP系统封禁',
                         '§7如有疑问请联系NDP管理人员'
@@ -540,7 +538,7 @@ class NDPBanSystem:
                     self.kick_player(player, '\n'.join(kick_msg))
                     self.server.logger.info(f'检测到被封禁玩家 {player}')
 
-    def on_player_left(self, player: str):
+    def on_player_left(self, server: PluginServerInterface, player: str, *args):
         self.ban_data.update_online_status(player, False)
 
     def sync_bans(self, source: Optional[CommandSource] = None, show_message: bool = True):
@@ -611,12 +609,13 @@ class NDPBanSystem:
                         msg += '\n§a没有新的封禁需要添加'
                 source.reply(msg)
                 
-            self.server.logger.info(f'封禁列表同步成功 (IP封禁: {len(ip_bans)}, 玩家封禁: {len(player_bans)})')
-            if self.config.auto_ban:
-                if banned_ips:
-                    self.server.logger.info(f'自动封禁了 {len(banned_ips)} 个IP地址')
-                if banned_players:
-                    self.server.logger.info(f'自动封禁了 {len(banned_players)} 个玩家')
+            if self.config.synclog:
+                self.server.logger.info(f'封禁列表同步成功 (IP封禁: {len(ip_bans)}, 玩家封禁: {len(player_bans)})')
+                if self.config.auto_ban:
+                    if banned_ips:
+                        self.server.logger.info(f'自动封禁了 {len(banned_ips)} 个IP地址')
+                    if banned_players:
+                        self.server.logger.info(f'自动封禁了 {len(banned_players)} 个玩家')
 
             self.check_online_players()
 
