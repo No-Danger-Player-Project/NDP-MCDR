@@ -16,7 +16,7 @@ PLUGIN_METADATA = {
 }
 
 class Config(Serializable):
-    api_url: str = 'http://39.96.215.98:5020'
+    api_url: str = 'http://apiv1.ndpreforged.com'
     secret_token: str = 'ndp_pwd_114514'
     sync_interval: int = 30
     check_localhost: bool = True
@@ -889,6 +889,7 @@ class NDPBanSystem:
                 f"§a最新版本:v{latest_version}",
                 f"§a更新内容:{release_body}",
                 f"§a迁移到NDPR",
+                f"§a步骤一",
                 RText("§b[§d安装NDPR§b]")
                 .set_click_event(RAction.suggest_command, f'!!MCDR plg install ndpr=={latest_version}')
                 .set_hover_text("§b点击填充命令到聊天栏"),
