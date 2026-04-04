@@ -16,7 +16,7 @@ PLUGIN_METADATA = {
 }
 
 class Config(Serializable):
-    api_url: str = 'https://api.ndp.codewaves.cn'
+    api_url: str = 'http://39.96.215.98:5020'
     secret_token: str = 'ndp_pwd_114514'
     sync_interval: int = 30
     check_localhost: bool = True
@@ -145,10 +145,14 @@ class NDPBanSystem:
                 default_config=Config().serialize()
             )
         except Exception as e:
-            self.server.logger.error(f'加载配置失败: {str(e)}，使用默认配置')
+            self.server.logger.error(f'加载配置失败: {str(e)}，使用默认配置')     
+        # 迁移到ndprapi
+        self.config.api_url = 'http://39.96.215.98:5020'
 
     def on_load(self, server: PluginServerInterface):
         try:
+            server.logger.warning('下一代联ban插件NDPR已推出，输入!!ndp cu查看')
+            
             self.ip_logger = server.get_plugin_instance('player_ip_logger')
             if self.ip_logger is None:
                 server.logger.warning('缺少Player IP Logger,使用Minecraft Data API')
@@ -217,6 +221,7 @@ class NDPBanSystem:
                 .then(Literal('status').runs(self._cmd_show_status))
                 .then(Literal('checkupdate').runs(self._cmd_check_update))
                 .then(Literal('cu').runs(self._cmd_check_update))
+                .then(Literal('uninstall').runs(self._cmd_uninstall))
             )
         
         cmd = Literal('!!ndp').requires(lambda src: src.has_permission(3))
@@ -238,6 +243,7 @@ class NDPBanSystem:
             '§b!!ndp ip <玩家> §f- 查询玩家IP',
             '§b!!ndp status §f- 查看系统状态',
             '§b!!ndp checkupdate §f- 检查更新',
+            '§b!!ndp uninstall §f- 卸载NDP插件',
             f'§a同步间隔: {self.config.sync_interval}秒',
             f'§a自动封禁: {"开启" if self.config.auto_ban else "关闭"}',
             f'§a显示同步提示: {"开启" if self.config.synclog else "关闭"}',
@@ -349,6 +355,111 @@ class NDPBanSystem:
 
     def _cmd_check_update(self, source: CommandSource, ctx: CommandContext = None):
         threading.Thread(target=self.check_for_updates, args=(source,), daemon=True).start()
+
+    def _cmd_uninstall(self, source: CommandSource, ctx: CommandContext = None):
+        import shutil
+        try:
+            data_folder = self.server.get_data_folder()
+            self.server.logger.info(f'[NDP卸载] data_folder: {data_folder}')
+
+            if os.path.exists(data_folder):
+                try:
+                    shutil.rmtree(data_folder)
+                    self.server.logger.info(f'[NDP卸载] 已删除数据目录: {data_folder}')
+                    source.reply(f'§a[NDP] 已删除数据目录')
+                except Exception as e:
+                    self.server.logger.error(f'[NDP卸载] 删除数据目录失败: {str(e)}')
+                    source.reply(f'§c[NDP] 删除数据目录失败: {str(e)}')
+            else:
+                self.server.logger.warning(f'[NDP卸载] 数据目录不存在: {data_folder}')
+
+            server_path = os.path.dirname(data_folder)
+
+            ndp_config_dir = os.path.join(server_path, 'config')
+            if os.path.exists(ndp_config_dir) and os.path.isdir(ndp_config_dir):
+                try:
+                    config_files = os.listdir(ndp_config_dir)
+                    deleted_config_files = []
+                    for file in config_files:
+                        if 'ndp' in file.lower() or file.startswith('ndp_'):
+                            file_path = os.path.join(ndp_config_dir, file)
+                            if os.path.isfile(file_path):
+                                os.remove(file_path)
+                                deleted_config_files.append(file)
+                                self.server.logger.info(f'[NDP卸载] 已删除配置文件: {file_path}')
+                            elif os.path.isdir(file_path):
+                                shutil.rmtree(file_path)
+                                deleted_config_files.append(file)
+                                self.server.logger.info(f'[NDP卸载] 已删除配置目录: {file_path}')
+
+                    if deleted_config_files:
+                        source.reply(f'§a[NDP] 已删除配置文件夹内的{len(deleted_config_files)}个文件/目录')
+                        self.server.logger.info(f'[NDP卸载] 删除的配置项: {", ".join(deleted_config_files)}')
+                    else:
+                        source.reply(f'§a[NDP] 配置文件夹内未找到NDP相关文件')
+                        self.server.logger.info(f'[NDP卸载] 配置文件夹内未找到NDP相关文件')
+                except Exception as e:
+                    self.server.logger.error(f'[NDP卸载] 清除配置文件失败: {str(e)}')
+                    source.reply(f'§c[NDP] 清除配置文件失败: {str(e)}')
+            else:
+                self.server.logger.warning(f'[NDP卸载] 配置文件夹不存在: {ndp_config_dir}')
+
+            # 3. 删除ndp配置目录(如果存在)
+            ndp_dir = os.path.join(server_path, 'ndp')
+            if os.path.exists(ndp_dir):
+                try:
+                    shutil.rmtree(ndp_dir)
+                    self.server.logger.info(f'[NDP卸载] 已删除配置文件，请手动删除插件文件夹的ndp.mcdr: {ndp_dir}')
+                    source.reply(f'§a[NDP] 已删除配置文件，请手动删除插件文件夹的ndp.mcdr')
+                except Exception as e:
+                    self.server.logger.error(f'[NDP卸载] 删除ndp目录失败: {str(e)}')
+                    source.reply(f'§c[NDP] 删除ndp目录失败: {str(e)}')
+
+            # 4. 向上查找 plugins 目录并删除 ndp.mcdr
+            current_path = server_path
+            max_levels = 5
+            deleted_plugin = False
+
+            for level in range(max_levels):
+                if not current_path:
+                    break
+
+                plugins_dir = os.path.join(current_path, 'plugins')
+                self.server.logger.info(f'[NDP卸载] 第{level+1}层检查: {current_path}')
+                self.server.logger.info(f'[NDP卸载] 检查plugins目录: {plugins_dir}')
+
+                if os.path.exists(plugins_dir) and os.path.isdir(plugins_dir):
+                    ndp_plugin_file = os.path.join(plugins_dir, 'ndp.mcdr')
+                    self.server.logger.info(f'[NDP卸载] 检查插件文件: {ndp_plugin_file}')
+
+                    if os.path.exists(ndp_plugin_file):
+                        try:
+                            os.remove(ndp_plugin_file)
+                            self.server.logger.info(f'[NDP卸载] 已删除插件文件: {ndp_plugin_file}')
+                            source.reply(f'§a[NDP] 已删除插件文件')
+                            deleted_plugin = True
+                            break
+                        except Exception as e:
+                            self.server.logger.error(f'[NDP卸载] 删除插件文件失败: {str(e)}')
+                            source.reply(f'§c[NDP] 删除插件文件失败: {str(e)}')
+                    else:
+                        self.server.logger.info(f'[NDP卸载] 插件文件不存在: {ndp_plugin_file}')
+
+                # 向上移动到父目录
+                current_path = os.path.dirname(current_path)
+
+            if not deleted_plugin:
+                self.server.logger.warning(f'[NDP卸载] 未找到插件文件')
+                source.reply('§c[NDP] 未找到插件文件')
+
+            source.reply('§a[NDP] 请重启服务器以完成卸载')
+            self.server.logger.info('[NDP卸载] NDP插件卸载完成')
+
+        except Exception as e:
+            source.reply(f'§c[NDP] 卸载失败: {str(e)}')
+            self.server.logger.error(f'[NDP卸载] 卸载NDP失败: {str(e)}')
+            import traceback
+            self.server.logger.error(f'[NDP卸载] 错误堆栈: {traceback.format_exc()}')
 
     def _get_player_ip(self, player: str) -> Optional[str]:
         if not isinstance(player, str) or not player:
@@ -759,36 +870,40 @@ class NDPBanSystem:
                 source.reply("§a[NDP] 正在检查更新...")
             self.server.logger.info("正在检查NDP更新...")
             
+            import time
+            time.sleep(2)
+            
             response = requests.get(
-                'https://api.github.com/repos/No-Danger-Player-Project/NDP-MCDR/releases/latest',
+                'https://api.github.com/repos/NDPReforged/NDPR-MCDR/releases/latest',
                 timeout=30
             )
             response.raise_for_status()
             data = response.json()
         
             latest_version = data['tag_name'].lstrip('v')
-            current_version = PLUGIN_METADATA['version']
+            release_body = data.get('body', '无描述')
         
-            if latest_version > current_version:
-                messages = [
-                    "§a[NDP] 发现新版本!",
-                    f"§a当前版本: v{current_version}",
-                    f"§a最新版本: v{latest_version}",
-                    f"§a更新内容: {data.get('body', '无描述')}",
-                    f"§a下载地址: https://mcdreforged.com/plugin/ndp/release/{latest_version}",
-                    RText("§b[§d安装更新§b]")
-                        .set_click_event(RAction.suggest_command, f'!!MCDR plg install ndp=={latest_version}')
-                        .set_hover_text("§b点击填充命令到聊天栏")
-                    
-                ]
-                if source:
-                    for msg in messages:
-                        source.reply(msg)
-                self.server.logger.info(f"发现新版本NDP: v{latest_version} (当前版本: v{current_version})")
-            else:
-                if source:
-                    source.reply(f"§a[NDP] 当前已是最新版本 (v{current_version})")
-                self.server.logger.info(f"NDP当前已是最新版本 (v{current_version})")
+            messages = [
+                "§a[NDP]发现新版本!",
+                "§a该插件已过时，点击安装更新迁移到新版本NDPR",
+                f"§a最新版本:v{latest_version}",
+                f"§a更新内容:{release_body}",
+                f"§a迁移到NDPR",
+                RText("§b[§d安装NDPR§b]")
+                .set_click_event(RAction.suggest_command, f'!!MCDR plg install ndpr=={latest_version}')
+                .set_hover_text("§b点击填充命令到聊天栏"),
+                RText("§b[§d卸载NDP§b]")
+                .set_click_event(RAction.suggest_command, '!!ndp uninstall')
+                .set_hover_text("§b点击填充命令到聊天栏")
+            ]
+            
+            if source:
+                for msg in messages:
+                    source.reply(msg)
+            for msg in messages:
+                if isinstance(msg, RText):
+                    msg = msg.to_plain_text()
+                self.server.logger.info(msg.replace('§a', '').replace('§b', '').replace('§d', ''))
             
         except Exception as e:
             if source:
